@@ -1,0 +1,6 @@
+*.jpg
+*.json
+*.jpeg
+*.gif
+/docker
+/pytorch_advanced
