@@ -1,4 +1,4 @@
 # study_pytorch
 
 自習用
-aaa
+https://github.com/YutaroOgawa/pytorch_advanced
