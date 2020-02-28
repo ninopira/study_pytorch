@@ -2,5 +2,8 @@
 *.json
 *.jpeg
 *.gif
+*.xml
 /docker
 /pytorch_advanced
+*.txt
+*.png
