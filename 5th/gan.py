@@ -15,7 +15,9 @@ import torch.optim as optim
 
 from torchvision import transforms
 
-
+###########################
+# アーキテクチャの構築
+###########################
 class Generator(nn.Module):
     # 乱数を元に画像を出力
     def __init__(self, z_dim=20, image_size=64):
@@ -114,3 +116,64 @@ d_out = D(fake_images)
 # 2値分類なのでdigmoid
 print(nn.Sigmoid()(d_out))
 
+###########################
+# Dataloader
+###########################
+
+def make_datapath_list():
+    """学習、検証の画像データとアノテーションデータへのファイルパスリストを作成する。 """
+
+    train_img_list = list()  # 画像ファイルパスを格納
+
+    for img_idx in range(200):
+        img_path = "./data/img_78/img_7_" + str(img_idx)+'.jpg'
+        train_img_list.append(img_path)
+
+        img_path = "./data/img_78/img_8_" + str(img_idx)+'.jpg'
+        train_img_list.append(img_path)
+
+    return train_img_list
+
+
+class ImageTransform():
+    """画像の前処理クラス"""
+
+    def __init__(self, mean, std):
+        self.data_transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std)
+        ])
+
+    def __call__(self, img):
+        return self.data_transform(img)
+
+# datasetの作成
+class GAN_Img_Dataset(data.Dataset):
+    def __init__(self, file_list, transform):
+        self.file_list = file_list
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.file_list)
+
+    def __getitem__(self, index):
+        img_path = self.file_list[index]
+        img = Image.open(img_path)
+        img_transformed = self.transform(img)
+        return img_transformed
+
+
+# dataloaderの作成
+train_img_list = make_datapath_list()
+train_dataset = GAN_Img_Dataset(
+    file_list=train_img_list,
+    transform=ImageTransform(mean=(0.5,), std=(0.5,))
+)
+batch_size = 64
+train_dataloader = data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+
+# 動作確認
+print('Data_Loader')
+batch_iter = iter(train_dataloader)
+imges = next(batch_iter)
+print(imges.shape)
