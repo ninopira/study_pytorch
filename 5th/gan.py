@@ -6,6 +6,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
+from tqdm import tqdm
 
 import torch
 import torch.utils.data as data
@@ -14,6 +15,9 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 from torchvision import transforms
+
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+print("使用デバイス：", device)
 
 ###########################
 # アーキテクチャの構築
@@ -87,37 +91,37 @@ class Discriminator(nn.Module):
         out = self.last(out)
         return out
 
-# 動作確認
-print('G')
-G = Generator(z_dim=20, image_size=64)
-print(G)
-# 入力する乱数
-input_z = torch.randn(1, 20)
-# テンソルサイズを(1, 20, 1, 1)に変形
-input_z = input_z.view(input_z.size(0), input_z.size(1), 1, 1)
-print(input_z.shape)
-# 偽画像を出力
-fake_images = G(input_z)
-print(fake_images.shape)
-img_transformed = fake_images[0][0].detach().numpy()
-plt.imshow(img_transformed, 'gray')
-plt.show()
+# # 動作確認
+# print('G')
+# G = Generator(z_dim=20, image_size=64)
+# print(G)
+# # 入力する乱数
+# input_z = torch.randn(1, 20)
+# # テンソルサイズを(1, 20, 1, 1)に変形
+# input_z = input_z.view(input_z.size(0), input_z.size(1), 1, 1)
+# print(input_z.shape)
+# # 偽画像を出力
+# fake_images = G(input_z)
+# print(fake_images.shape)
+# img_transformed = fake_images[0][0].detach().numpy()
+# plt.imshow(img_transformed, 'gray')
+# plt.show()
 
-print('D')
-# 動作確認
-D = Discriminator(z_dim=20, image_size=64)
-print(D)
-# 偽画像を生成
-input_z = torch.randn(1, 20)
-input_z = input_z.view(input_z.size(0), input_z.size(1), 1, 1)
-fake_images = G(input_z)
-# 偽画像をDに入力
-d_out = D(fake_images)
-# 2値分類なのでdigmoid
-print(nn.Sigmoid()(d_out))
+# print('D')
+# # 動作確認
+# D = Discriminator(z_dim=20, image_size=64)
+# print(D)
+# # 偽画像を生成
+# input_z = torch.randn(1, 20)
+# input_z = input_z.view(input_z.size(0), input_z.size(1), 1, 1)
+# fake_images = G(input_z)
+# # 偽画像をDに入力
+# d_out = D(fake_images)
+# # 2値分類なのでdigmoid
+# print(nn.Sigmoid()(d_out))
 
 ###########################
-# Dataloader
+# dataloader
 ###########################
 
 def make_datapath_list():
@@ -147,6 +151,7 @@ class ImageTransform():
     def __call__(self, img):
         return self.data_transform(img)
 
+
 # datasetの作成
 class GAN_Img_Dataset(data.Dataset):
     def __init__(self, file_list, transform):
@@ -172,8 +177,144 @@ train_dataset = GAN_Img_Dataset(
 batch_size = 64
 train_dataloader = data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
+
 # 動作確認
-print('Data_Loader')
-batch_iter = iter(train_dataloader)
-imges = next(batch_iter)
-print(imges.shape)
+# print('Data_Loader')
+# batch_iter = iter(train_dataloader)
+# imges = next(batch_iter)
+# print(imges.shape)
+
+###########################
+# learning
+###########################
+G = Generator()
+D = Discriminator()
+
+
+# 重みの初期化
+def weights_init(m):
+    classname = m.__class__.__name__
+    if classname.find('Conv') != -1:
+        # Conv2dとConvTranspose2dの初期化
+        nn.init.normal_(m.weight.data, 0.0, 0.02)
+        nn.init.constant_(m.bias.data, 0)
+    elif classname.find('BatchNorm') != -1:
+        # BatchNorm2dの初期化
+        nn.init.normal_(m.weight.data, 1.0, 0.02)
+        nn.init.constant_(m.bias.data, 0)
+
+
+G.apply(weights_init)
+D.apply(weights_init)
+
+# 最適化手法の設定
+g_lr, d_lr = 0.0001, 0.0004
+beta1, beta2 = 0.0, 0.9
+g_optimizer = torch.optim.Adam(G.parameters(), g_lr, [beta1, beta2])
+d_optimizer = torch.optim.Adam(D.parameters(), d_lr, [beta1, beta2])
+
+
+# loss. logtをかけて、xエントロピー
+criterion = nn.BCEWithLogitsLoss(reduction='mean')
+
+z_dim = 20
+mini_batch_size = 64
+
+G.to(device)
+D.to(device)
+
+G.train()  # モデルを訓練モードに
+D.train()  # モデルを訓練モードに
+
+torch.backends.cudnn.benchmark = True
+
+num_train_imgs = len(train_dataloader.dataset)
+# train_dataset.__len__
+
+# 学習
+num_epochs = 200
+iteration = 1
+logs = []
+
+for epoch in range(num_epochs):
+    # 開始時刻を保存
+    t_epoch_start = time.time()
+    epoch_g_loss = 0.0  # epochの損失和
+    epoch_d_loss = 0.0  # epochの損失和
+
+    print('-------------')
+    print('Epoch {}/{}'.format(epoch, num_epochs))
+    print('-------------')
+
+    for imgs in tqdm(train_dataloader):
+        # Dの学習
+        # バッチサイズが0だとBNでコケるの
+        if imgs.size()[0] == 1:
+            continue
+        imgs = imgs.to(device)
+        mini_batch_size = imgs.size()[0]
+        label_real = torch.full((mini_batch_size,), 1).to(device)
+        label_fake = torch.full((mini_batch_size,), 0).to(device)
+        # 存在する(真)画像を入れたときのDの出力値
+        d_out_real = D(imgs)
+
+        # 入力を乱数でGを通して、画像を生成
+        input_z = torch.randn(mini_batch_size, z_dim).to(device)
+        input_z = input_z.view(input_z.size(0), input_z.size(1), 1, 1)
+        fake_images = G(input_z)
+
+        # Gが生成した偽画像をDを元に本物かの出力値
+        d_out_fake = D(fake_images)
+
+        # lossの計算
+        d_loss_real = criterion(d_out_real.view(-1), label_real)
+        d_loss_fake = criterion(d_out_fake.view(-1), label_fake)
+        d_loss = d_loss_real + d_loss_fake
+
+        # バックプロパゲーション
+        g_optimizer.zero_grad()
+        d_optimizer.zero_grad()
+
+        d_loss.backward()
+        d_optimizer.step()
+
+        # Gの学習
+        # 偽の画像を生成して判定
+        input_z = torch.randn(mini_batch_size, z_dim).to(device)
+        input_z = input_z.view(input_z.size(0), input_z.size(1), 1, 1)
+        fake_images = G(input_z)
+        d_out_fake = D(fake_images)
+
+        # 誤差を計算
+        g_loss = criterion(d_out_fake.view(-1), label_real)
+
+        # バックプロパゲーション
+        g_optimizer.zero_grad()
+        d_optimizer.zero_grad()
+        g_loss.backward()
+        g_optimizer.step()
+
+        # --------------------
+        # 3. 記録
+        # --------------------
+        epoch_d_loss += d_loss.item()
+        epoch_g_loss += g_loss.item()
+        iteration += 1
+
+    # epochのphaseごとのlossと正解率
+    t_epoch_finish = time.time()
+    print('-------------')
+    print('epoch {} || Epoch_D_Loss:{:.4f} ||Epoch_G_Loss:{:.4f}'.format(
+        epoch, epoch_d_loss/batch_size, epoch_g_loss/batch_size))
+    print('timer:  {:.4f} sec.'.format(t_epoch_finish - t_epoch_start))
+    t_epoch_start = time.time()
+
+
+
+
+
+
+
+
+
+
