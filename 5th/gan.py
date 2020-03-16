@@ -1,10 +1,12 @@
 # パッケージのimport
+import csv
 import random
 import math
 import time
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 from PIL import Image
 from tqdm import tqdm
 
@@ -18,6 +20,21 @@ from torchvision import transforms
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print("使用デバイス：", device)
+
+
+# 可視化
+def plot_history(csv_path, png_path):
+    df = pd.read_csv(csv_path)
+    fig = plt.figure(figsize=(8, 8))
+    ax = fig.add_subplot(1, 1, 1)
+    ax.plot(df['epoch'], df['g_train'], label='g_train')
+    ax.plot(df['epoch'], df['d_train'], label='d_train')
+    ax.get_xaxis().get_major_formatter().set_useOffset(False)
+    ax.get_xaxis().set_major_locator(ticker.MaxNLocator(integer=True))
+    ax.set_xlabel('epoch')
+    ax.set_ylabel('loss')
+    ax.legend()
+    fig.savefig(png_path)
 
 ###########################
 # アーキテクチャの構築
@@ -123,7 +140,6 @@ class Discriminator(nn.Module):
 ###########################
 # dataloader
 ###########################
-
 def make_datapath_list():
     """学習、検証の画像データとアノテーションデータへのファイルパスリストを作成する。 """
 
@@ -185,6 +201,40 @@ train_dataloader = data.DataLoader(train_dataset, batch_size=batch_size, shuffle
 # print(imges.shape)
 
 ###########################
+# predict
+###########################
+def generate(epoch):
+    batch_size = 8
+    z_dim = 20
+    fixed_z = torch.randn(batch_size, z_dim)
+    fixed_z = fixed_z.view(fixed_z.size(0), fixed_z.size(1), 1, 1)
+
+    # 画像生成
+    fake_images = G(fixed_z.to(device))
+
+    # # 訓練データ
+    # batch_iterator = iter(train_dataloader)  # イテレータに変換
+    # imges = next(batch_iterator)  # 1番目の要素を取り出す
+
+    # 出力
+    fig = plt.figure(figsize=(15, 6))
+    for i in range(0, 5):
+        # 上段に訓練データを
+        # plt.subplot(2, 5, i+1)
+        # plt.imshow(imges[i][0].cpu().detach().numpy(), 'gray')
+
+        # # 下段に生成データを表示する
+        # plt.subplot(2, 5, 5+i+1)
+        # plt.imshow(fake_images[i][0].cpu().detach().numpy(), 'gray')
+        plt.subplot(1, 5, i+1)
+        plt.imshow(fake_images[i][0].cpu().detach().numpy(), 'gray')
+    fig.savefig('generate_{}ep.png'.format(epoch))
+
+
+
+
+
+###########################
 # learning
 ###########################
 G = Generator()
@@ -232,10 +282,17 @@ num_train_imgs = len(train_dataloader.dataset)
 # train_dataset.__len__
 
 # 学習
-num_epochs = 200
+num_epochs = 500
 iteration = 1
 logs = []
-
+d_loss_means = []
+g_loss_means = []
+csv_path = './history.csv'
+png_path = './history.png'
+with open(csv_path, 'w') as f:
+    writer = csv.writer(f)
+    header = ['epoch', 'g_train', 'd_train']
+    writer.writerow(header)
 for epoch in range(num_epochs):
     # 開始時刻を保存
     t_epoch_start = time.time()
@@ -303,18 +360,30 @@ for epoch in range(num_epochs):
 
     # epochのphaseごとのlossと正解率
     t_epoch_finish = time.time()
+    d_loss_mean = epoch_d_loss/batch_size
+    g_loss_mean = epoch_g_loss/batch_size
+    d_loss_means.append(d_loss_mean)
+    g_loss_means.append(g_loss_mean)
     print('-------------')
-    print('epoch {} || Epoch_D_Loss:{:.4f} ||Epoch_G_Loss:{:.4f}'.format(
-        epoch, epoch_d_loss/batch_size, epoch_g_loss/batch_size))
+    print('epoch {} || Epoch_D_Loss:{:.4f} ||Epoch_G_Loss:{:.4f}'.format(epoch+1, d_loss_mean, g_loss_mean))
     print('timer:  {:.4f} sec.'.format(t_epoch_finish - t_epoch_start))
+    with open(csv_path, 'a') as f:
+        writer = csv.writer(f)
+        data = {'epoch': epoch+1, 'g_train': g_loss_mean, 'd_train':d_loss_mean}
+        writer.writerow([epoch, g_loss_mean, d_loss_mean])
+
+    if epoch % 5 == 0:
+        plot_history(csv_path, png_path)
+        generate(epoch)
     t_epoch_start = time.time()
 
+print('learning_done')
+plot_history(csv_path, png_path)
 
-
-
-
-
-
-
+# PyTorchのネットワークパラメータの保存
+save_path = './weights_G.pth'
+torch.save(G.state_dict(), save_path)
+save_path = './weights_D.pth'
+torch.save(D.state_dict(), save_path)
 
 
