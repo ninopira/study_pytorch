@@ -23,6 +23,7 @@ torch.manual_seed(1234)
 np.random.seed(1234)
 random.seed(1234)
 
+
 class Self_Attention(nn.Module):
     def __init__(self, in_dim):
         super(Self_Attention, self).__init__()
@@ -42,7 +43,7 @@ class Self_Attention(nn.Module):
         X = x
 
         # B, C, W, H -> B, C, N
-        proj_query = self.query_conv(x).view(X.shape[0], -1, X.shape[2]*X.shape[2])  # B, C', N
+        proj_query = self.query_conv(X).view(X.shape[0], -1, X.shape[2]*X.shape[2])  # B, C', N
         proj_query = proj_query.permute(0, 2, 1)  # B, N, C'
         proj_key = self.key_conv(X).view(X.shape[0], -1, X.shape[2]*X.shape[3])  # B,C',N
 
@@ -329,6 +330,7 @@ with open(csv_path, 'w') as f:
     writer = csv.writer(f)
     header = ['epoch', 'g_train', 'd_train']
     writer.writerow(header)
+
 for epoch in range(num_epochs):
     # 開始時刻を保存
     t_epoch_start = time.time()
@@ -360,7 +362,7 @@ for epoch in range(num_epochs):
 
         # lossの計算
         d_loss_real = torch.nn.ReLU()(1.0-d_out_real).mean()
-        d_loss_fake = torch.nn.ReLU()(1.0+d_out_real).mean()
+        d_loss_fake = torch.nn.ReLU()(1.0+d_out_fake).mean()
         d_loss = d_loss_real + d_loss_fake
 
         # バックプロパゲーション
